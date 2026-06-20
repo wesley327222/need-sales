@@ -10,6 +10,26 @@ interface NotaRelatorio {
   sugestoes: string[]
 }
 
+interface SpinDim {
+  score: number
+  evidencias: string[]
+  justificativa: string
+  sugestoes: string[]
+}
+
+// Critério dinâmico (modelo novo) — autodescritivo, vem de `criterios_resultado` no banco
+export interface CriterioResultadoDisplay {
+  key: string
+  label: string
+  obrigatorio: boolean
+  nota: number
+  justificativa: string
+  evidencias: string[]
+  sugestoes: string[]
+  objecoes?: { numero: number; texto: string; status: string; como_tratou: string; sugestao_quebra: string }[]
+  spinBreakdown?: { S: SpinDim; P: SpinDim; I: SpinDim; N: SpinDim }
+}
+
 export interface MeetingTabData {
   transcription: string | null
   duration_seconds: number | null
@@ -30,6 +50,9 @@ export interface MeetingTabData {
     assunto: string | null
     mensagem: string
   }[]
+  // Modelo novo (critérios dinâmicos) — quando presente, tem prioridade na aba "Relatório das Notas"
+  criteriosResultado: CriterioResultadoDisplay[] | null
+  // Modelo antigo (critérios fixos) — usado como fallback para registros analisados antes da personalização
   relatorioNotas: {
     escuta: NotaRelatorio | null
     objecoes_nota: NotaRelatorio | null
@@ -37,10 +60,10 @@ export interface MeetingTabData {
   } | null
   spin: {
     score: number
-    S: { score: number; evidencias: string[]; justificativa: string; sugestoes: string[] }
-    P: { score: number; evidencias: string[]; justificativa: string; sugestoes: string[] }
-    I: { score: number; evidencias: string[]; justificativa: string; sugestoes: string[] }
-    N: { score: number; evidencias: string[]; justificativa: string; sugestoes: string[] }
+    S: SpinDim
+    P: SpinDim
+    I: SpinDim
+    N: SpinDim
   } | null
   proposta: string | null
 }
@@ -77,6 +100,113 @@ function fmtDuration(s: number | null) {
   if (!s) return '—'
   const m = Math.floor(s / 60), sec = s % 60
   return `${m}:${sec.toString().padStart(2, '0')}`
+}
+
+function NotaCard({ title, nota, color, badge }: { title: string; nota: NotaRelatorio | null; color?: string; badge?: string }) {
+  const titleNode = (
+    <span style={{ fontFamily: V.mono, fontSize: 11, fontWeight: 700, color: V.text1, letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 8 }}>
+      {title}
+      {badge && (
+        <span style={{
+          fontFamily: V.mono, fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+          padding: '2px 7px', borderRadius: 3, background: 'rgba(0,229,160,0.1)', color: V.accent,
+          border: '1px solid rgba(0,229,160,0.2)',
+        }}>
+          {badge}
+        </span>
+      )}
+    </span>
+  )
+
+  if (!nota) return (
+    <div style={{ background: V.surface, border: `1px solid ${V.border}`, borderRadius: 5, overflow: 'hidden', marginBottom: 12 }}>
+      <div style={{ padding: '11px 16px', background: V.surface2 }}>
+        {titleNode}
+      </div>
+      <div style={{ padding: '13px 16px', fontSize: 12, color: V.text3 }}>Dados não disponíveis</div>
+    </div>
+  )
+  return (
+    <div style={{ background: V.surface, border: `1px solid ${V.border}`, borderRadius: 5, overflow: 'hidden', marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 16px', borderBottom: `1px solid ${V.border}`, background: V.surface2 }}>
+        {titleNode}
+        <span style={{ fontFamily: V.mono, fontSize: 16, fontWeight: 700, letterSpacing: '-0.03em', color: color ?? scoreColor(nota.valor) }}>
+          {nota.valor.toFixed(1)} /10
+        </span>
+      </div>
+      <div style={{ padding: 16 }}>
+        <div style={{ fontFamily: V.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: V.text3, marginBottom: 5 }}>Justificativa</div>
+        <div style={{ fontSize: 12.5, color: V.text1, lineHeight: 1.65, marginBottom: 12 }}>{nota.justificativa}</div>
+        {nota.evidencias.length > 0 && (
+          <>
+            <div style={{ fontFamily: V.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: V.text3, marginBottom: 6 }}>Evidências da Call</div>
+            {nota.evidencias.map((e, i) => (
+              <div key={i} style={{ fontSize: 11.5, color: V.text2, lineHeight: 1.6, background: V.surface2, borderLeft: `2px solid ${V.border2}`, padding: '6px 10px', marginBottom: 5, borderRadius: '0 3px 3px 0', fontStyle: 'italic' }}>{e}</div>
+            ))}
+          </>
+        )}
+        {nota.sugestoes.length > 0 && (
+          <>
+            <div style={{ fontFamily: V.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: V.text3, marginBottom: 6, marginTop: 12 }}>Sugestões de Melhoria</div>
+            {nota.sugestoes.map((s, i) => (
+              <div key={i} style={{ fontSize: 11.5, color: V.accent, lineHeight: 1.6, marginBottom: 4 }}>→ {s}</div>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SpinBreakdownCard({ title, score }: { title: string; score: number }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 16px', borderBottom: `1px solid ${V.border}`, background: V.surface2 }}>
+      <span style={{ fontFamily: V.mono, fontSize: 11, fontWeight: 700, color: V.text1, letterSpacing: '0.04em' }}>{title}</span>
+      <span style={{ fontFamily: V.mono, fontSize: 16, fontWeight: 700, letterSpacing: '-0.03em', color: scoreColor(score) }}>
+        {score.toFixed(1)} /10
+      </span>
+    </div>
+  )
+}
+
+function SpinGrid({ S, P, I, N }: { S: SpinDim; P: SpinDim; I: SpinDim; N: SpinDim }) {
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {([
+          { key: 'S', label: 'S — Situação', item: S },
+          { key: 'P', label: 'P — Problema', item: P },
+          { key: 'I', label: 'I — Implicação', item: I },
+          { key: 'N', label: 'N — Necessidade', item: N },
+        ] as const).map(({ key, label, item }) => (
+          <div key={key} style={{ background: V.bg, border: `1px solid ${V.border}`, borderRadius: 4, padding: '11px 13px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 7 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: V.text1 }}>{label}</span>
+              <span style={{ fontFamily: V.mono, fontSize: 13, fontWeight: 700, color: scoreColor(item.score) }}>{item.score}/10</span>
+            </div>
+            {item.evidencias.length > 0 && (
+              <>
+                <div style={{ fontFamily: V.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: V.text3, marginBottom: 5 }}>Evidências</div>
+                {item.evidencias.map((e, i) => (
+                  <div key={i} style={{ fontSize: 11, color: V.text2, lineHeight: 1.55, background: V.surface2, borderLeft: `2px solid ${V.border2}`, padding: '5px 9px', marginBottom: 4, borderRadius: '0 3px 3px 0', fontStyle: 'italic' }}>{e}</div>
+                ))}
+              </>
+            )}
+            <div style={{ fontFamily: V.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: V.text3, marginBottom: 5, marginTop: 7 }}>Justificativa</div>
+            <div style={{ fontSize: 11, color: V.text2, lineHeight: 1.55 }}>{item.justificativa}</div>
+            {item.sugestoes.length > 0 && (
+              <>
+                <div style={{ fontFamily: V.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: V.text3, marginBottom: 5, marginTop: 7 }}>Sugestões</div>
+                {item.sugestoes.map((s, i) => (
+                  <div key={i} style={{ fontSize: 11, color: V.accent, lineHeight: 1.55 }}>→ {s}</div>
+                ))}
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export function MeetingTabs({ data }: { data: MeetingTabData }) {
@@ -237,46 +367,32 @@ export function MeetingTabs({ data }: { data: MeetingTabData }) {
       )}
 
       {tab === 'relatorio' && (() => {
-        const hasAny = data.relatorioNotas || data.spin
-        if (!hasAny) return <EmptyState text="Relatório não disponível" />
+        const hasDynamic = data.criteriosResultado && data.criteriosResultado.length > 0
+        const hasLegacy = data.relatorioNotas || data.spin
+        if (!hasDynamic && !hasLegacy) return <EmptyState text="Relatório não disponível" />
 
-        function NotaCard({ title, nota, color }: { title: string; nota: NotaRelatorio | null; color?: string }) {
-          if (!nota) return (
-            <div style={{ background: V.surface, border: `1px solid ${V.border}`, borderRadius: 5, overflow: 'hidden', marginBottom: 12 }}>
-              <div style={{ padding: '11px 16px', background: V.surface2 }}>
-                <span style={{ fontFamily: V.mono, fontSize: 11, fontWeight: 700, color: V.text3 }}>{title}</span>
-              </div>
-              <div style={{ padding: '13px 16px', fontSize: 12, color: V.text3 }}>Dados não disponíveis</div>
-            </div>
-          )
+        if (hasDynamic) {
           return (
-            <div style={{ background: V.surface, border: `1px solid ${V.border}`, borderRadius: 5, overflow: 'hidden', marginBottom: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 16px', borderBottom: `1px solid ${V.border}`, background: V.surface2 }}>
-                <span style={{ fontFamily: V.mono, fontSize: 11, fontWeight: 700, color: V.text1, letterSpacing: '0.04em' }}>{title}</span>
-                <span style={{ fontFamily: V.mono, fontSize: 16, fontWeight: 700, letterSpacing: '-0.03em', color: color ?? scoreColor(nota.valor) }}>
-                  {nota.valor.toFixed(1)} /10
-                </span>
-              </div>
-              <div style={{ padding: 16 }}>
-                <div style={{ fontFamily: V.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: V.text3, marginBottom: 5 }}>Justificativa</div>
-                <div style={{ fontSize: 12.5, color: V.text1, lineHeight: 1.65, marginBottom: 12 }}>{nota.justificativa}</div>
-                {nota.evidencias.length > 0 && (
-                  <>
-                    <div style={{ fontFamily: V.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: V.text3, marginBottom: 6 }}>Evidências da Call</div>
-                    {nota.evidencias.map((e, i) => (
-                      <div key={i} style={{ fontSize: 11.5, color: V.text2, lineHeight: 1.6, background: V.surface2, borderLeft: `2px solid ${V.border2}`, padding: '6px 10px', marginBottom: 5, borderRadius: '0 3px 3px 0', fontStyle: 'italic' }}>{e}</div>
-                    ))}
-                  </>
-                )}
-                {nota.sugestoes.length > 0 && (
-                  <>
-                    <div style={{ fontFamily: V.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: V.text3, marginBottom: 6, marginTop: 12 }}>Sugestões de Melhoria</div>
-                    {nota.sugestoes.map((s, i) => (
-                      <div key={i} style={{ fontSize: 11.5, color: V.accent, lineHeight: 1.6, marginBottom: 4 }}>→ {s}</div>
-                    ))}
-                  </>
-                )}
-              </div>
+            <div>
+              {data.criteriosResultado!.map((c, i) => {
+                const badge = c.obrigatorio ? 'Obrigatório' : undefined
+                if (c.key === 'spin_selling' && c.spinBreakdown) {
+                  return (
+                    <div key={c.key} style={{ background: V.surface, border: `1px solid ${V.border}`, borderRadius: 5, overflow: 'hidden', marginBottom: 12 }}>
+                      <SpinBreakdownCard title={`${i + 1} — ${c.label}`} score={c.nota} />
+                      <SpinGrid {...c.spinBreakdown} />
+                    </div>
+                  )
+                }
+                return (
+                  <NotaCard
+                    key={c.key}
+                    title={`${i + 1} — ${c.label}`}
+                    badge={badge}
+                    nota={{ valor: c.nota, justificativa: c.justificativa, evidencias: c.evidencias, sugestoes: c.sugestoes }}
+                  />
+                )
+              })}
             </div>
           )
         }
@@ -289,50 +405,8 @@ export function MeetingTabs({ data }: { data: MeetingTabData }) {
 
             {data.spin && (
               <div style={{ background: V.surface, border: `1px solid ${V.border}`, borderRadius: 5, overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 16px', borderBottom: `1px solid ${V.border}`, background: V.surface2 }}>
-                  <span style={{ fontFamily: V.mono, fontSize: 11, fontWeight: 700, color: V.text1, letterSpacing: '0.04em' }}>4 — SPIN Selling</span>
-                  <span style={{ fontFamily: V.mono, fontSize: 16, fontWeight: 700, letterSpacing: '-0.03em', color: scoreColor(data.spin.score) }}>
-                    {data.spin.score.toFixed(1)} /10
-                  </span>
-                </div>
-                <div style={{ padding: 16 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    {([
-                      { key: 'S', label: 'S — Situação' },
-                      { key: 'P', label: 'P — Problema' },
-                      { key: 'I', label: 'I — Implicação' },
-                      { key: 'N', label: 'N — Necessidade' },
-                    ] as const).map(({ key, label }) => {
-                      const item = data.spin![key]
-                      return (
-                        <div key={key} style={{ background: V.bg, border: `1px solid ${V.border}`, borderRadius: 4, padding: '11px 13px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 7 }}>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: V.text1 }}>{label}</span>
-                            <span style={{ fontFamily: V.mono, fontSize: 13, fontWeight: 700, color: scoreColor(item.score) }}>{item.score}/10</span>
-                          </div>
-                          {item.evidencias.length > 0 && (
-                            <>
-                              <div style={{ fontFamily: V.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: V.text3, marginBottom: 5 }}>Evidências</div>
-                              {item.evidencias.map((e, i) => (
-                                <div key={i} style={{ fontSize: 11, color: V.text2, lineHeight: 1.55, background: V.surface2, borderLeft: `2px solid ${V.border2}`, padding: '5px 9px', marginBottom: 4, borderRadius: '0 3px 3px 0', fontStyle: 'italic' }}>{e}</div>
-                              ))}
-                            </>
-                          )}
-                          <div style={{ fontFamily: V.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: V.text3, marginBottom: 5, marginTop: 7 }}>Justificativa</div>
-                          <div style={{ fontSize: 11, color: V.text2, lineHeight: 1.55 }}>{item.justificativa}</div>
-                          {item.sugestoes.length > 0 && (
-                            <>
-                              <div style={{ fontFamily: V.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: V.text3, marginBottom: 5, marginTop: 7 }}>Sugestões</div>
-                              {item.sugestoes.map((s, i) => (
-                                <div key={i} style={{ fontSize: 11, color: V.accent, lineHeight: 1.55 }}>→ {s}</div>
-                              ))}
-                            </>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
+                <SpinBreakdownCard title="4 — SPIN Selling" score={data.spin.score} />
+                <SpinGrid S={data.spin.S} P={data.spin.P} I={data.spin.I} N={data.spin.N} />
               </div>
             )}
           </div>
@@ -386,3 +460,6 @@ function EmptyState({ text }: { text: string }) {
     </div>
   )
 }
+
+// fmtScore re-exported for pages that compute scorecards dynamically using the same formatting
+export { fmtScore }

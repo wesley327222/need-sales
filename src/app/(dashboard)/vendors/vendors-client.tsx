@@ -16,9 +16,10 @@ const D = {
 interface Props {
   sellers: SellerRow[]
   cards: { label: string; val: string; color: string }[]
+  criteriaLabels?: string[]
 }
 
-export function VendorsClient({ sellers: initialSellers, cards }: Props) {
+export function VendorsClient({ sellers: initialSellers, cards, criteriaLabels }: Props) {
   const [sellers, setSellers] = useState(initialSellers)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingVendor, setEditingVendor] = useState<VendorFormData | null>(null)
@@ -59,6 +60,10 @@ export function VendorsClient({ sellers: initialSellers, cards }: Props) {
         avgEscuta: null,
         avgObjecoes: null,
         avgApresentacao: null,
+        avgNota1: null,
+        avgNota2: null,
+        avgNota3: null,
+        avgNota4: null,
       }]
     })
   }
@@ -91,7 +96,7 @@ export function VendorsClient({ sellers: initialSellers, cards }: Props) {
               </div>
             ))}
           </div>
-          <VendorsTable sellers={sellers} onEdit={handleEdit} />
+          <VendorsTable sellers={sellers} onEdit={handleEdit} criteriaLabels={criteriaLabels} />
         </div>
       </div>
 

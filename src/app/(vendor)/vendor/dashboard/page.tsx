@@ -4,6 +4,7 @@ import { VendorSidebar } from '@/components/vendor/sidebar'
 import { ActionCards } from '@/components/vendor/action-cards'
 import { ScoreRing } from '@/components/vendor/score-ring'
 import { V, scoreColor, fmtScore } from '@/components/vendor/colors'
+import { fetchAiConfig, resolveActiveCriteria } from '@/lib/ai-config'
 
 export default async function VendorDashboard() {
   const supabase = await createClient()
@@ -76,12 +77,12 @@ export default async function VendorDashboard() {
 
   const myRankPos = ranking.findIndex(r => r.me) + 1
 
-  // Criteria averages from inline columns
+  // Criteria averages from inline columns — separa registros legado (colunas fixas) de novos (nota_1..nota_4)
   const myReunioesScored = reunioes?.filter(m => m.nota_geral != null) ?? []
   const { data: reunioesDetail } = myReunioesScored.length
     ? await service
         .from('reunioes')
-        .select('nota_escuta, nota_objecoes, nota_apresentacao')
+        .select('nota_escuta, nota_objecoes, nota_apresentacao, nota_1, nota_2, nota_3, nota_4, criterios_resultado')
         .eq('vendedor_id', user.id)
         .not('nota_geral', 'is', null)
     : { data: [] }
@@ -91,26 +92,52 @@ export default async function VendorDashboard() {
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
   }
 
-  const criAvg = {
-    escuta:       avg((reunioesDetail ?? []).map(r => r.nota_escuta)),
-    objecoes:     avg((reunioesDetail ?? []).map(r => r.nota_objecoes)),
-    apresentacao: avg((reunioesDetail ?? []).map(r => r.nota_apresentacao)),
+  const legacyDetail = (reunioesDetail ?? []).filter(r => !r.criterios_resultado)
+  const dynamicDetail = (reunioesDetail ?? []).filter(r => r.criterios_resultado)
+
+  const reuniaoConfig = profile?.empresa_id ? await fetchAiConfig(profile.empresa_id, 'reuniao') : null
+  const { optional: activeOptional } = resolveActiveCriteria(reuniaoConfig, 'reuniao')
+  const slotKeys = ['nota_1', 'nota_2', 'nota_3', 'nota_4'] as const
+
+  const dynamicCriAvg = activeOptional.map((def, i) => ({
+    label: def.label,
+    descricao: def.descricao,
+    val: avg(dynamicDetail.map(r => r[slotKeys[i]])),
+  }))
+
+  const LEGACY_LABELS: Record<string, { label: string; descricao: string }> = {
+    escuta: { label: 'Escuta Ativa', descricao: 'dedique mais tempo a perguntas abertas e evite interromper o cliente antes de ele concluir o raciocínio' },
+    objecoes: { label: 'Quebra de Objeções', descricao: 'use o método FEEL-FELT-FOUND ou reframing para converter resistências em oportunidades de venda' },
+    apresentacao: { label: 'Apresentação do Produto', descricao: 'conecte os benefícios às dores específicas do cliente em vez de apresentar funcionalidades genéricas' },
+  }
+  const legacyCriAvg: Record<string, number | null> = {
+    escuta: avg(legacyDetail.map(r => r.nota_escuta)),
+    objecoes: avg(legacyDetail.map(r => r.nota_objecoes)),
+    apresentacao: avg(legacyDetail.map(r => r.nota_apresentacao)),
   }
 
-  const sorted = Object.entries(criAvg).filter(([, v]) => v != null).sort(([, a], [, b]) => (a ?? 0) - (b ?? 0))
-  const weakest = sorted[0]?.[0]
+  let weakestLabel: string | null = null
+  let weakestDescricao: string | null = null
+  if (dynamicCriAvg.some(c => c.val != null)) {
+    const sortedDynamic = [...dynamicCriAvg].filter(c => c.val != null).sort((a, b) => (a.val ?? 0) - (b.val ?? 0))
+    weakestLabel = sortedDynamic[0]?.label ?? null
+    weakestDescricao = sortedDynamic[0]?.descricao ?? null
+  } else {
+    const sortedLegacy = Object.entries(legacyCriAvg).filter(([, v]) => v != null).sort(([, a], [, b]) => (a ?? 0) - (b ?? 0))
+    const key = sortedLegacy[0]?.[0]
+    weakestLabel = key ? LEGACY_LABELS[key]?.label ?? null : null
+    weakestDescricao = key ? LEGACY_LABELS[key]?.descricao ?? null : null
+  }
 
   const STATIC_ACTIONS = [
     {
       id: 1, priority: 'alta' as const,
-      text: weakest === 'escuta'
-        ? 'Pratique escuta ativa dedicando mais tempo a perguntas abertas e evitando interromper o cliente antes de ele concluir seu raciocínio.'
-        : weakest === 'objecoes'
-        ? 'Aprimore sua técnica de quebra de objeções. Use o método FEEL-FELT-FOUND ou reframing para converter resistências em oportunidades de venda.'
-        : 'Conecte os benefícios do produto às dores específicas do cliente em vez de apresentar funcionalidades genéricas.',
-      objetivo: weakest === 'escuta'
-        ? 'Aumentar sua nota de Escuta Ativa e criar maior rapport com o cliente nas próximas reuniões.'
-        : 'Converter mais objeções em fechamentos, aumentando sua taxa de conversão.',
+      text: weakestLabel
+        ? `Foque em melhorar "${weakestLabel}"${weakestDescricao ? ` — ${weakestDescricao}.` : '.'} Essa é sua métrica com menor desempenho recente.`
+        : 'Continue mantendo a qualidade das suas reuniões — nenhuma métrica de desempenho ficou abaixo da média recente.',
+      objetivo: weakestLabel
+        ? `Aumentar sua nota de ${weakestLabel} nas próximas reuniões.`
+        : 'Manter a consistência do seu desempenho.',
     },
     {
       id: 2, priority: 'alta' as const,

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase/server'
 import { MeetingTabs, type MeetingTabData } from '@/components/vendor/meeting-tabs'
 import { AudioPlayer } from '@/components/vendor/audio-player'
+import { mapCriteriosResultado, buildDynamicScorecard } from '@/lib/agents/display-mapping'
 import type { ObjecaoAvaliada } from '@/lib/types/agents'
 
 const D = {
@@ -62,25 +63,30 @@ export default async function CallDetailPage({ params }: Props) {
     followups.push({ canal: 'email', timing: 'D+5', assunto: lines[0] ?? null, mensagem: lines.slice(1).join('\n\n') || ligacao.follow_email_5 })
   }
 
+  const criteriosResultado = mapCriteriosResultado(ligacao.criterios_resultado)
+
   const tabData: MeetingTabData = {
     transcription: ligacao.transcricao,
     duration_seconds: ligacao.duracao,
     insights,
     objecoes: objecoesArr.map(o => ({ numero: o.numero, texto: o.texto, status: o.status, como_tratou: o.como_tratou, sugestao_quebra: o.sugestao_quebra })),
     followups,
+    criteriosResultado,
     relatorioNotas: null,
     spin: null,
     proposta: ligacao.follow_email_5 ?? null,
   }
 
-  const CRITERIA = [
-    { key: 'geral',               label: 'Nota Geral',          val: ligacao.nota_geral,               main: true },
-    { key: 'acesso_decisor',      label: 'Acesso Decisor',      val: ligacao.nota_acesso_decisor,      main: false },
-    { key: 'qualificacao_lead',   label: 'Expl. Motivo',        val: ligacao.nota_qualificacao_lead,   main: false },
-    { key: 'geracao_curiosidade', label: 'Geração Curiosidade', val: ligacao.nota_geracao_curiosidade, main: false },
-    { key: 'conducao_conversa',   label: 'Condução Conv.',      val: ligacao.nota_conducao_conversa,   main: false },
-    { key: 'pedido_reuniao',      label: 'Pedido Reunião',      val: ligacao.nota_pedido_reuniao,      main: false },
-  ]
+  const CRITERIA = criteriosResultado
+    ? buildDynamicScorecard(ligacao.nota_geral, criteriosResultado)
+    : [
+        { key: 'geral',               label: 'Nota Geral',          val: ligacao.nota_geral,               main: true },
+        { key: 'acesso_decisor',      label: 'Acesso Decisor',      val: ligacao.nota_acesso_decisor,      main: false },
+        { key: 'qualificacao_lead',   label: 'Expl. Motivo',        val: ligacao.nota_qualificacao_lead,   main: false },
+        { key: 'geracao_curiosidade', label: 'Geração Curiosidade', val: ligacao.nota_geracao_curiosidade, main: false },
+        { key: 'conducao_conversa',   label: 'Condução Conv.',      val: ligacao.nota_conducao_conversa,   main: false },
+        { key: 'pedido_reuniao',      label: 'Pedido Reunião',      val: ligacao.nota_pedido_reuniao,      main: false },
+      ]
 
   return (
     <div style={{ fontFamily: D.ui, color: D.text1 }}>

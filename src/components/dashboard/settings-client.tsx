@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useCallback } from 'react'
+import { CRITERIOS_REUNIAO, CRITERIOS_LIGACAO, MAX_OPTIONAL_CRITERIA } from '@/lib/criteria-definitions'
 
 const D = {
   surface: '#111113', surface2: '#18181B',
@@ -33,26 +34,6 @@ const NAV = [
 
 // ---- AI Config panel ----
 
-const CRITERIOS_REUNIAO = [
-  { key: 'escuta_ativa',     label: 'Escuta Ativa',            desc: 'Perguntas abertas, empatia, adaptação' },
-  { key: 'quebra_objecoes',  label: 'Quebra de Objeções',      desc: 'Identificação e tratamento de objeções' },
-  { key: 'apresentacao',     label: 'Apresentação do Produto',  desc: 'Clareza, benefícios, provas sociais' },
-  { key: 'spin_selling',     label: 'SPIN Selling',             desc: 'Situação, Problema, Implicação, Necessidade' },
-  { key: 'firmeza',          label: 'Firmeza / Assertividade',  desc: 'Postura segura, sem hesitação' },
-  { key: 'rapport',          label: 'Rapport / Empatia',        desc: 'Conexão humana, clima de confiança' },
-  { key: 'urgencia',         label: 'Criação de Urgência',      desc: 'Motivação para decisão rápida' },
-]
-
-const CRITERIOS_LIGACAO = [
-  { key: 'acesso_decisor',      label: 'Acesso ao Decisor',      desc: 'Falar com quem decide a compra' },
-  { key: 'explicacao_motivo',   label: 'Explicação do Motivo',   desc: 'Clareza na razão do contato' },
-  { key: 'geracao_curiosidade', label: 'Geração de Curiosidade', desc: 'Despertar interesse real' },
-  { key: 'conducao_conversa',   label: 'Condução da Conversa',   desc: 'Controle do diálogo' },
-  { key: 'pedido_reuniao',      label: 'Pedido de Reunião',      desc: 'Tentativa de agendar próximo passo' },
-  { key: 'firmeza',             label: 'Firmeza / Assertividade', desc: 'Tom seguro, postura de autoridade' },
-  { key: 'tonalidade',          label: 'Tom de Voz / Confiança', desc: 'Ritmo, confiança, assertividade' },
-]
-
 const PESO_LABELS: Record<number, string> = { 1: 'Mínimo', 2: 'Baixo', 3: 'Médio', 4: 'Alto', 5: 'Máximo' }
 const PESO_COLORS: Record<number, string> = { 1: '#4A4A56', 2: '#8A8A96', 3: '#F59E0B', 4: '#4F8EF7', 5: '#00E5A0' }
 
@@ -77,8 +58,13 @@ function Slider({ value, onChange }: { value: number; onChange: (v: number) => v
   )
 }
 
-type AiConfigState = { criterios: Record<string, number>; conhecimentos: string }
-const defaultConfig = (): AiConfigState => ({ criterios: {}, conhecimentos: '' })
+type CriterioState = { peso: number; ativo: boolean }
+type AiConfigState = {
+  criterios: Record<string, CriterioState>
+  conhecimentos: string
+  qualificacaoLeadPrompt: string
+}
+const defaultConfig = (): AiConfigState => ({ criterios: {}, conhecimentos: '', qualificacaoLeadPrompt: '' })
 
 function AiConfigPanel() {
   const [tab,        setTab]        = useState<'reuniao' | 'ligacao'>('reuniao')
@@ -92,12 +78,20 @@ function AiConfigPanel() {
     try {
       const res = await fetch(`/api/ai-config?tipo=${tipo}`)
       const data = await res.json()
-      if (!data) return
-      const pesos: Record<string, number> = {}
-      for (const [k, v] of Object.entries(data.criterios ?? {})) {
-        pesos[k] = (v as { peso?: number }).peso ?? 3
+      const defs = tipo === 'reuniao' ? CRITERIOS_REUNIAO : CRITERIOS_LIGACAO
+      const criterios: Record<string, CriterioState> = {}
+      for (const def of defs) {
+        const saved = data?.criterios?.[def.key] as { peso?: number; ativo?: boolean } | undefined
+        criterios[def.key] = {
+          peso: saved?.peso ?? 3,
+          ativo: def.obrigatorio ? true : saved?.ativo === true,
+        }
       }
-      const conf: AiConfigState = { criterios: pesos, conhecimentos: data.conhecimentos ?? '' }
+      const conf: AiConfigState = {
+        criterios,
+        conhecimentos: data?.conhecimentos ?? '',
+        qualificacaoLeadPrompt: data?.qualificacao_lead_prompt ?? '',
+      }
       if (tipo === 'reuniao') setReuniaoConf(conf)
       else setLigacaoConf(conf)
     } catch { /* ignore */ }
@@ -116,26 +110,56 @@ function AiConfigPanel() {
   const conf = tab === 'reuniao' ? reuniaoConf : ligacaoConf
   const setConf = tab === 'reuniao' ? setReuniaoConf : setLigacaoConf
 
+  const mandatory = criterios.filter(c => c.obrigatorio)
+  const optional = criterios.filter(c => !c.obrigatorio)
+  const activeOptionalCount = optional.filter(c => conf.criterios[c.key]?.ativo).length
+
   function setPeso(key: string, val: number) {
-    setConf(prev => ({ ...prev, criterios: { ...prev.criterios, [key]: val } }))
+    setConf(prev => ({
+      ...prev,
+      criterios: { ...prev.criterios, [key]: { ...prev.criterios[key], peso: val } },
+    }))
+  }
+
+  function toggleAtivo(key: string) {
+    setConf(prev => {
+      const isActive = prev.criterios[key]?.ativo ?? false
+      const currentlyActive = optional.filter(c => prev.criterios[c.key]?.ativo).length
+      if (!isActive && currentlyActive >= MAX_OPTIONAL_CRITERIA) return prev
+      return {
+        ...prev,
+        criterios: { ...prev.criterios, [key]: { ...prev.criterios[key], ativo: !isActive } },
+      }
+    })
   }
 
   async function handleSave() {
     setSaving(true); setMsg(null)
     try {
-      const criteriosPayload: Record<string, { peso: number }> = {}
+      const criteriosPayload: Record<string, { peso: number; ativo: boolean }> = {}
       for (const c of criterios) {
-        criteriosPayload[c.key] = { peso: conf.criterios[c.key] ?? 3 }
+        criteriosPayload[c.key] = {
+          peso: conf.criterios[c.key]?.peso ?? 3,
+          ativo: c.obrigatorio ? true : (conf.criterios[c.key]?.ativo ?? false),
+        }
       }
       const res = await fetch('/api/ai-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipo: tab, criterios: criteriosPayload, conhecimentos: conf.conhecimentos }),
+        body: JSON.stringify({
+          tipo: tab,
+          criterios: criteriosPayload,
+          conhecimentos: conf.conhecimentos,
+          qualificacao_lead_prompt: tab === 'ligacao' ? conf.qualificacaoLeadPrompt : undefined,
+        }),
       })
-      if (!res.ok) throw new Error('Erro ao salvar')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? 'Erro ao salvar')
+      }
       setMsg({ type: 'ok', text: 'Configuração salva! Próximas análises usarão esses parâmetros.' })
-    } catch {
-      setMsg({ type: 'err', text: 'Erro ao salvar. Tente novamente.' })
+    } catch (err) {
+      setMsg({ type: 'err', text: err instanceof Error ? err.message : 'Erro ao salvar. Tente novamente.' })
     } finally {
       setSaving(false)
     }
@@ -170,25 +194,75 @@ function AiConfigPanel() {
 
       {/* Info callout */}
       <div style={{ padding: '10px 14px', background: 'rgba(0,229,160,0.04)', border: '1px solid rgba(0,229,160,0.12)', borderRadius: 4, marginBottom: 20, fontFamily: D.mono, fontSize: 10, color: D.accent, lineHeight: 1.7 }}>
-        Configure os pesos (1=mínimo → 5=máximo) de cada critério. A IA vai dar mais ênfase aos critérios com peso maior ao gerar as notas e análises.
+        Critérios obrigatórios são sempre avaliados. Escolha até {MAX_OPTIONAL_CRITERIA} critérios opcionais e ajuste o peso (1=mínimo → 5=máximo) — os pesos agora determinam matematicamente a nota geral.
       </div>
 
-      {/* Sliders */}
+      {/* Mandatory criteria */}
       <div style={{ fontFamily: D.mono, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', color: D.text3, marginBottom: 12 }}>
-        Peso dos Critérios
+        Critérios Obrigatórios
       </div>
       <div style={{ display: 'grid', gap: 10, marginBottom: 24 }}>
-        {criterios.map(c => (
+        {mandatory.map(c => (
           <div key={c.key} style={{ background: D.surface2, border: `1px solid ${D.border2}`, borderRadius: 5, padding: '13px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: D.text1, marginBottom: 2 }}>{c.label}</div>
-                <div style={{ fontSize: 11, color: D.text2 }}>{c.desc}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: D.text1 }}>{c.label}</span>
+                  <span style={{
+                    fontFamily: D.mono, fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                    padding: '2px 7px', borderRadius: 3, background: 'rgba(0,229,160,0.1)', color: D.accent,
+                    border: '1px solid rgba(0,229,160,0.2)',
+                  }}>
+                    Obrigatório
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: D.text2 }}>{c.descricao}</div>
               </div>
             </div>
-            <Slider value={conf.criterios[c.key] ?? 3} onChange={v => setPeso(c.key, v)} />
+            <Slider value={conf.criterios[c.key]?.peso ?? 3} onChange={v => setPeso(c.key, v)} />
           </div>
         ))}
+      </div>
+
+      {/* Optional criteria */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ fontFamily: D.mono, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', color: D.text3 }}>
+          Critérios Opcionais (escolha até {MAX_OPTIONAL_CRITERIA})
+        </div>
+        <div style={{
+          fontFamily: D.mono, fontSize: 10, fontWeight: 700, color: activeOptionalCount >= MAX_OPTIONAL_CRITERIA ? D.amber : D.text2,
+        }}>
+          {activeOptionalCount}/{MAX_OPTIONAL_CRITERIA} selecionados
+        </div>
+      </div>
+      <div style={{ display: 'grid', gap: 10, marginBottom: 24 }}>
+        {optional.map(c => {
+          const isActive = conf.criterios[c.key]?.ativo ?? false
+          const disabled = !isActive && activeOptionalCount >= MAX_OPTIONAL_CRITERIA
+          return (
+            <div key={c.key} style={{
+              background: D.surface2, border: `1px solid ${isActive ? 'rgba(0,229,160,0.2)' : D.border2}`,
+              borderRadius: 5, padding: '13px 16px', opacity: disabled ? 0.5 : 1,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10, gap: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: disabled ? 'default' : 'pointer' }}>
+                  <input
+                    type="checkbox" checked={isActive} disabled={disabled}
+                    onChange={() => toggleAtivo(c.key)}
+                    style={{ marginTop: 3, width: 14, height: 14, accentColor: D.accent, cursor: disabled ? 'default' : 'pointer' }}
+                  />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: D.text1, marginBottom: 2 }}>{c.label}</div>
+                    <div style={{ fontSize: 11, color: D.text2 }}>{c.descricao}</div>
+                  </div>
+                </label>
+              </div>
+              <div style={{ opacity: isActive ? 1 : 0.4, pointerEvents: isActive ? 'auto' : 'none' }}>
+                <Slider value={conf.criterios[c.key]?.peso ?? 3} onChange={v => setPeso(c.key, v)} />
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       {/* Knowledge base */}
@@ -209,6 +283,27 @@ function AiConfigPanel() {
           fontSize: 12, lineHeight: 1.65, padding: '12px',
         }}
       />
+
+      {/* Lead qualification prompt — ligação only */}
+      {tab === 'ligacao' && (
+        <>
+          <div style={{ fontFamily: D.mono, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', color: D.text3, marginBottom: 8, marginTop: 20 }}>
+            O que você considera um Lead Qualificado?
+          </div>
+          <div style={{ fontSize: 11, color: D.text2, marginBottom: 10, lineHeight: 1.6 }}>
+            Defina o que conta como um lead qualificado para o seu negócio (porte, autoridade de decisão esperada, sinais de interesse que importam). A IA usa isso para avaliar a qualificação do lead em cada ligação — isso é sempre avaliado, independente dos critérios escolhidos acima.
+          </div>
+          <textarea
+            value={conf.qualificacaoLeadPrompt}
+            onChange={e => setConf(prev => ({ ...prev, qualificacaoLeadPrompt: e.target.value }))}
+            placeholder="Ex: Um lead qualificado tem autoridade para decidir sozinho ou é o principal influenciador, demonstra dor real com o problema atual, e está no momento certo (contrato vencendo em até 60 dias)..."
+            style={{
+              ...inpSt, minHeight: 120, resize: 'vertical', fontFamily: D.ui,
+              fontSize: 12, lineHeight: 1.65, padding: '12px',
+            }}
+          />
+        </>
+      )}
 
       <div style={{ marginTop: 16 }}>
         <button onClick={handleSave} disabled={saving} style={{

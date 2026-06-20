@@ -4,6 +4,7 @@ import { VendorSidebar } from '@/components/vendor/sidebar'
 import { MeetingTabs, type MeetingTabData } from '@/components/vendor/meeting-tabs'
 import { AudioPlayer } from '@/components/vendor/audio-player'
 import { V, scoreColor, fmtScore } from '@/components/vendor/colors'
+import { mapCriteriosResultado, buildDynamicScorecard } from '@/lib/agents/display-mapping'
 import type { ObjecaoAvaliada } from '@/lib/types/agents'
 
 interface Props {
@@ -59,6 +60,8 @@ export default async function VendorCallDetail({ params }: Props) {
     followups.push({ canal: 'email', timing: 'D+5', assunto, mensagem })
   }
 
+  const criteriosResultado = mapCriteriosResultado(ligacao.criterios_resultado)
+
   const tabData: MeetingTabData = {
     transcription: ligacao.transcricao,
     duration_seconds: ligacao.duracao,
@@ -71,19 +74,22 @@ export default async function VendorCallDetail({ params }: Props) {
       sugestao_quebra: o.sugestao_quebra,
     })),
     followups,
+    criteriosResultado,
     relatorioNotas: null,
     spin: null,
     proposta: ligacao.follow_email_5 ?? null,
   }
 
-  const CRITERIA = [
-    { key: 'geral',               label: 'Nota Geral',         val: ligacao.nota_geral,               main: true },
-    { key: 'acesso_decisor',      label: 'Acesso Decisor',     val: ligacao.nota_acesso_decisor,      main: false },
-    { key: 'qualificacao_lead',   label: 'Expl. Motivo',       val: ligacao.nota_qualificacao_lead,   main: false },
-    { key: 'geracao_curiosidade', label: 'Geração Curiosidade', val: ligacao.nota_geracao_curiosidade, main: false },
-    { key: 'conducao_conversa',   label: 'Condução Conv.',     val: ligacao.nota_conducao_conversa,   main: false },
-    { key: 'pedido_reuniao',      label: 'Pedido Reunião',     val: ligacao.nota_pedido_reuniao,      main: false },
-  ]
+  const CRITERIA = criteriosResultado
+    ? buildDynamicScorecard(ligacao.nota_geral, criteriosResultado)
+    : [
+        { key: 'geral',               label: 'Nota Geral',         val: ligacao.nota_geral,               main: true },
+        { key: 'acesso_decisor',      label: 'Acesso Decisor',     val: ligacao.nota_acesso_decisor,      main: false },
+        { key: 'qualificacao_lead',   label: 'Expl. Motivo',       val: ligacao.nota_qualificacao_lead,   main: false },
+        { key: 'geracao_curiosidade', label: 'Geração Curiosidade', val: ligacao.nota_geracao_curiosidade, main: false },
+        { key: 'conducao_conversa',   label: 'Condução Conv.',     val: ligacao.nota_conducao_conversa,   main: false },
+        { key: 'pedido_reuniao',      label: 'Pedido Reunião',     val: ligacao.nota_pedido_reuniao,      main: false },
+      ]
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -111,7 +117,7 @@ export default async function VendorCallDetail({ params }: Props) {
 
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontFamily: V.mono, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', color: V.text3, marginBottom: 8 }}>Avaliação da Ligação</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 1, background: V.border, border: `1px solid ${V.border}`, borderRadius: 5, overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${CRITERIA.length},1fr)`, gap: 1, background: V.border, border: `1px solid ${V.border}`, borderRadius: 5, overflow: 'hidden' }}>
               {CRITERIA.map(c => (
                 <div key={c.key} style={{ background: c.main ? V.surface2 : V.surface, padding: '14px 12px', textAlign: 'center' }}>
                   <div style={{ fontFamily: V.mono, fontSize: 7, textTransform: 'uppercase', letterSpacing: '0.08em', color: V.text3, marginBottom: 6 }}>{c.label}</div>

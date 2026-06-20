@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { VendorsClient } from './vendors-client'
+import { fetchAiConfig, resolveActiveCriteria } from '@/lib/ai-config'
 import type { SellerRow } from '@/components/dashboard/vendors-table'
 
 const D = {
@@ -37,15 +38,19 @@ export default async function VendorsPage() {
 
   const empresaId = managerProfile.empresa_id
 
-  const [{ data: profiles }, { data: reunioes }, { data: ligacoes }] = await Promise.all([
+  const [{ data: profiles }, { data: reunioes }, { data: ligacoes }, reuniaoConfig] = await Promise.all([
     service.from('profiles').select('id, nome, email, avatar_url')
       .eq('role', 'seller')
       .eq('empresa_id', empresaId),
-    service.from('reunioes').select('vendedor_id, nota_geral, nota_escuta, nota_objecoes, nota_apresentacao')
+    service.from('reunioes').select('vendedor_id, nota_geral, nota_escuta, nota_objecoes, nota_apresentacao, nota_1, nota_2, nota_3, nota_4, criterios_resultado')
       .eq('empresa_id', empresaId),
     service.from('ligacoes').select('vendedor_id, nota_geral')
       .eq('empresa_id', empresaId),
+    fetchAiConfig(empresaId, 'reuniao'),
   ])
+
+  const { optional: activeOptional } = resolveActiveCriteria(reuniaoConfig, 'reuniao')
+  const criteriaLabels = activeOptional.map(c => c.label)
 
   const avatarUrlMap: Record<string, string | null> = {}
   for (const p of profiles ?? []) {
@@ -63,6 +68,8 @@ export default async function VendorsPage() {
     const meets = (reunioes ?? []).filter(r => r.vendedor_id === p.id)
     const calls  = (ligacoes ?? []).filter(l => l.vendedor_id === p.id)
     const allScores = [...meets.map(r => r.nota_geral), ...calls.map(c => c.nota_geral)]
+    const legacyMeets = meets.filter(r => !r.criterios_resultado)
+    const dynamicMeets = meets.filter(r => r.criterios_resultado)
     return {
       id: p.id,
       nome: p.nome,
@@ -72,9 +79,13 @@ export default async function VendorsPage() {
       totalMeetings:   meets.length,
       totalCalls:      calls.length,
       avgScore:        avg(allScores),
-      avgEscuta:       avg(meets.map(r => r.nota_escuta)),
-      avgObjecoes:     avg(meets.map(r => r.nota_objecoes)),
-      avgApresentacao: avg(meets.map(r => r.nota_apresentacao)),
+      avgEscuta:       avg(legacyMeets.map(r => r.nota_escuta)),
+      avgObjecoes:     avg(legacyMeets.map(r => r.nota_objecoes)),
+      avgApresentacao: avg(legacyMeets.map(r => r.nota_apresentacao)),
+      avgNota1:        avg(dynamicMeets.map(r => r.nota_1)),
+      avgNota2:        avg(dynamicMeets.map(r => r.nota_2)),
+      avgNota3:        avg(dynamicMeets.map(r => r.nota_3)),
+      avgNota4:        avg(dynamicMeets.map(r => r.nota_4)),
     }
   }).sort((a, b) => (b.avgScore ?? 0) - (a.avgScore ?? 0))
 
@@ -87,5 +98,5 @@ export default async function VendorsPage() {
     { label: 'Total de Análises',    val: String(totalAnalyses),                               color: D.blue },
   ]
 
-  return <VendorsClient sellers={sellers} cards={cards} />
+  return <VendorsClient sellers={sellers} cards={cards} criteriaLabels={criteriaLabels} />
 }

@@ -47,6 +47,11 @@ export interface MeetingRow {
   nota_escuta: number | null
   nota_objecoes: number | null
   nota_apresentacao: number | null
+  nota_1: number | null
+  nota_2: number | null
+  nota_3: number | null
+  nota_4: number | null
+  criterios_resultado: unknown
   data_hora: string | null
   status: string | null
   vendedor_id: string | null
@@ -62,6 +67,11 @@ export interface LigacaoRow {
   nota_geracao_curiosidade: number | null
   nota_conducao_conversa: number | null
   nota_pedido_reuniao: number | null
+  nota_1: number | null
+  nota_2: number | null
+  nota_3: number | null
+  nota_4: number | null
+  criterios_resultado: unknown
   data_hora: string | null
   status: string | null
   vendedor_id: string | null
@@ -81,6 +91,8 @@ interface Props {
   meetings: MeetingRow[]
   ligacoes: LigacaoRow[]
   sellers: SellerRow[]
+  reuniaoCriteriaLabels?: string[]
+  ligacaoCriteriaLabels?: string[]
 }
 
 function filterByDate<T extends { data_hora: string | null }>(rows: T[], from: string, to: string): T[] {
@@ -144,7 +156,7 @@ function defaultMonths() {
   })
 }
 
-export function DashboardClient({ meetings, ligacoes, sellers }: Props) {
+export function DashboardClient({ meetings, ligacoes, sellers, reuniaoCriteriaLabels = [], ligacaoCriteriaLabels = [] }: Props) {
   const [tipo, setTipo] = useState<'reuniao' | 'ligacao'>('reuniao')
   const [preset, setPreset] = useState<DatePreset>('')
   const [customFrom, setCustomFrom] = useState('')
@@ -163,20 +175,36 @@ export function DashboardClient({ meetings, ligacoes, sellers }: Props) {
   const scored   = filtered.filter(r => r.nota_geral != null)
   const avgScore = avg(scored.map(r => r.nota_geral))
 
-  // Criteria averages panel
-  const criteriaAvg = tipo === 'reuniao'
-    ? {
-        'Nota Geral':   avg(filteredMeetings.map(m => m.nota_geral)),
-        'Escuta Ativa': avg(filteredMeetings.map(m => m.nota_escuta)),
-        'Objeções':     avg(filteredMeetings.map(m => m.nota_objecoes)),
-        'Apresentação': avg(filteredMeetings.map(m => m.nota_apresentacao)),
-      }
-    : {
-        'Nota Geral':     avg(filteredLigacoes.map(l => l.nota_geral)),
-        'Acesso Decisor': avg(filteredLigacoes.map(l => l.nota_acesso_decisor)),
-        'Curiosidade':    avg(filteredLigacoes.map(l => l.nota_geracao_curiosidade)),
-        'Condução':       avg(filteredLigacoes.map(l => l.nota_conducao_conversa)),
-      }
+  // Criteria averages panel — Nota Geral sempre inclui todos os registros; os demais
+  // separam legado (colunas fixas) de dinâmico (nota_1..nota_4, conforme config atual)
+  const criteriaAvg: Record<string, number | null> = tipo === 'reuniao'
+    ? (() => {
+        const legacy = filteredMeetings.filter(m => !m.criterios_resultado)
+        const dynamic = filteredMeetings.filter(m => m.criterios_resultado)
+        const entries: Record<string, number | null> = { 'Nota Geral': avg(filteredMeetings.map(m => m.nota_geral)) }
+        entries['Escuta Ativa'] = avg(legacy.map(m => m.nota_escuta))
+        entries['Objeções'] = avg(filteredMeetings.map(m => m.nota_objecoes))
+        entries['Apresentação'] = avg(legacy.map(m => m.nota_apresentacao))
+        const slots = ['nota_1', 'nota_2', 'nota_3', 'nota_4'] as const
+        reuniaoCriteriaLabels.slice(0, 4).forEach((label, i) => {
+          entries[label] = avg(dynamic.map(m => m[slots[i]]))
+        })
+        return entries
+      })()
+    : (() => {
+        const legacy = filteredLigacoes.filter(l => !l.criterios_resultado)
+        const dynamic = filteredLigacoes.filter(l => l.criterios_resultado)
+        const entries: Record<string, number | null> = { 'Nota Geral': avg(filteredLigacoes.map(l => l.nota_geral)) }
+        entries['Pedido de Reunião'] = avg(filteredLigacoes.map(l => l.nota_pedido_reuniao))
+        entries['Acesso Decisor'] = avg(legacy.map(l => l.nota_acesso_decisor))
+        entries['Curiosidade'] = avg(legacy.map(l => l.nota_geracao_curiosidade))
+        entries['Condução'] = avg(legacy.map(l => l.nota_conducao_conversa))
+        const slots = ['nota_1', 'nota_2', 'nota_3', 'nota_4'] as const
+        ligacaoCriteriaLabels.slice(0, 4).forEach((label, i) => {
+          entries[label] = avg(dynamic.map(l => l[slots[i]]))
+        })
+        return entries
+      })()
 
   const topSellers = useMemo(() => computeTopSellers(scored), [scored])
 

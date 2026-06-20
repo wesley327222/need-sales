@@ -8,27 +8,27 @@ export interface ObjecaoAvaliada {
   sugestao_quebra: string
 }
 
+// Critério opcional genérico — usado por qualquer critério selecionável pelo gestor
+// (escuta_ativa, apresentacao, firmeza, rapport, urgencia em reuniões; acesso_decisor,
+// explicacao_motivo, geracao_curiosidade, conducao_conversa, comunicacao em ligações)
+export interface CriterioGenericoResult {
+  nota: number
+  justificativa: string
+  evidencias: string[]
+  sugestoes: string[]
+}
+
+export interface QuebraObjecoesResult {
+  nota: number
+  justificativa: string
+  evidencias: string[]
+  sugestoes: string[]
+  objecoes: ObjecaoAvaliada[]
+}
+
 export interface EvaluatorResult {
-  nota1: {
-    valor: number // escuta ativa
-    justificativa: string
-    evidencias: string[]
-    sugestoes: string[]
-  }
-  nota2: {
-    valor: number // quebra de objeções
-    justificativa: string
-    evidencias: string[]
-    sugestoes: string[]
-    objecoes: ObjecaoAvaliada[]
-  }
-  nota3: {
-    valor: number // apresentação do produto
-    justificativa: string
-    evidencias: string[]
-    sugestoes: string[]
-  }
-  nota_geral: number
+  quebra_objecoes: QuebraObjecoesResult
+  criterios_opcionais: Record<string, CriterioGenericoResult>
   insights: {
     positivos: string[]
     melhorias: string[]
@@ -69,15 +69,20 @@ export interface LigacaoCriterioV2 {
   [key: string]: unknown
 }
 
+export interface PedidoReuniaoResult {
+  nota: number
+  justificativa: string
+  evidencias: LigacaoEvidencia[]
+  fez_convite_claro: boolean
+  explicou_duracao_reuniao: boolean
+  sugeriu_horarios_especificos: boolean
+  objecoes_recebidas: Array<{ objecao: string; resposta_vendedor: string; foi_bem_tratada: boolean }>
+  resultado: 'agendado' | 'pendente' | 'recusado' | 'nao_pediu'
+}
+
 export interface LigacaoResultV2 {
-  performance_vendedor: {
-    acesso_decisor:      LigacaoCriterioV2 & { falou_com_decisor: boolean; sinais_positivos: string[]; sinais_negativos: string[] }
-    explicacao_motivo:   LigacaoCriterioV2 & { foi_claro: boolean }
-    geracao_curiosidade: LigacaoCriterioV2 & { gatilhos_utilizados: string[]; fez_diagnostico_na_ligacao: boolean }
-    conducao_conversa:   LigacaoCriterioV2 & { fez_perguntas: boolean; manteve_foco_agendamento: boolean }
-    pedido_reuniao:      LigacaoCriterioV2 & { fez_convite_claro: boolean; objecoes_recebidas: Array<{ objecao: string; resposta_vendedor: string; foi_bem_tratada: boolean }>; resultado: string }
-    comunicacao:         LigacaoCriterioV2 & { tom_voz: string; naturalidade: string }
-  }
+  pedido_reuniao: PedidoReuniaoResult
+  criterios_opcionais: Record<string, CriterioGenericoResult>
   qualificacao_lead: {
     autoridade_decisao: LigacaoCriterioV2 & { nivel_autoridade: string }
     interesse_aparente: LigacaoCriterioV2 & { nivel_interesse: string; sinais_compra: string[] }

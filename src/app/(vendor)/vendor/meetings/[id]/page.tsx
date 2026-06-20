@@ -5,6 +5,7 @@ import { MeetingTabs, type MeetingTabData } from '@/components/vendor/meeting-ta
 import { AudioPlayer } from '@/components/vendor/audio-player'
 import { V, scoreColor, fmtScore } from '@/components/vendor/colors'
 import { ReprocessButton } from '@/components/vendor/reprocess-button'
+import { mapCriteriosResultado, buildDynamicScorecard } from '@/lib/agents/display-mapping'
 import type { SpinResult, ObjecaoAvaliada } from '@/lib/types/agents'
 
 interface Props {
@@ -107,6 +108,8 @@ export default async function VendorMeetingDetail({ params }: Props) {
   const propostaRaw = reuniao.proposta as PropostaDb | null
   const propostaText = propostaRaw?.sugerida ?? null
 
+  const criteriosResultado = mapCriteriosResultado(reuniao.criterios_resultado)
+
   const tabData: MeetingTabData = {
     transcription: reuniao.transcricao,
     duration_seconds: reuniao.duracao,
@@ -119,18 +122,21 @@ export default async function VendorMeetingDetail({ params }: Props) {
       sugestao_quebra: o.sugestao_quebra,
     })),
     followups,
+    criteriosResultado,
     relatorioNotas: hasRelatorio ? relatorioNotas : null,
     spin: spinData,
     proposta: propostaText ?? reuniao.follow_email_5 ?? null,
   }
 
-  const CRITERIA = [
-    { key: 'geral',        label: 'Nota Geral',    val: scores.geral,        main: true },
-    { key: 'escuta',       label: 'Escuta Ativa',  val: scores.escuta,       main: false },
-    { key: 'objecoes',     label: 'Objeções',       val: scores.objecoes,     main: false },
-    { key: 'apresentacao', label: 'Apresentação',   val: scores.apresentacao, main: false },
-    { key: 'spin',         label: 'SPIN Selling',   val: scores.spin,         main: false },
-  ]
+  const CRITERIA = criteriosResultado
+    ? buildDynamicScorecard(scores.geral, criteriosResultado)
+    : [
+        { key: 'geral',        label: 'Nota Geral',    val: scores.geral,        main: true },
+        { key: 'escuta',       label: 'Escuta Ativa',  val: scores.escuta,       main: false },
+        { key: 'objecoes',     label: 'Objeções',       val: scores.objecoes,     main: false },
+        { key: 'apresentacao', label: 'Apresentação',   val: scores.apresentacao, main: false },
+        { key: 'spin',         label: 'SPIN Selling',   val: scores.spin,         main: false },
+      ]
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -165,7 +171,7 @@ export default async function VendorMeetingDetail({ params }: Props) {
 
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontFamily: V.mono, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', color: V.text3, marginBottom: 8 }}>Avaliação da Reunião</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 1, background: V.border, border: `1px solid ${V.border}`, borderRadius: 5, overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${CRITERIA.length},1fr)`, gap: 1, background: V.border, border: `1px solid ${V.border}`, borderRadius: 5, overflow: 'hidden' }}>
               {CRITERIA.map(c => (
                 <div key={c.key} style={{ background: c.main ? V.surface2 : V.surface, padding: '14px 16px', textAlign: 'center' }}>
                   <div style={{ fontFamily: V.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.1em', color: V.text3, marginBottom: 6 }}>{c.label}</div>

@@ -20,6 +20,7 @@ export interface Database {
           tipo: 'reuniao' | 'ligacao'
           criterios: Json
           conhecimentos: string | null
+          qualificacao_lead_prompt: string | null
           updated_at: string
         }
         Insert: {
@@ -28,11 +29,13 @@ export interface Database {
           tipo: 'reuniao' | 'ligacao'
           criterios?: Json
           conhecimentos?: string | null
+          qualificacao_lead_prompt?: string | null
           updated_at?: string
         }
         Update: {
           criterios?: Json
           conhecimentos?: string | null
+          qualificacao_lead_prompt?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -177,6 +180,11 @@ export interface Database {
           nylas_notetaker_id: string | null
           meet_url: string | null
           origem: string | null
+          nota_1: number | null
+          nota_2: number | null
+          nota_3: number | null
+          nota_4: number | null
+          criterios_resultado: Json | null
           created_at: string
         }
         Insert: {
@@ -211,6 +219,11 @@ export interface Database {
           nylas_notetaker_id?: string | null
           meet_url?: string | null
           origem?: string | null
+          nota_1?: number | null
+          nota_2?: number | null
+          nota_3?: number | null
+          nota_4?: number | null
+          criterios_resultado?: Json | null
           created_at?: string
         }
         Update: {
@@ -244,6 +257,11 @@ export interface Database {
           nylas_notetaker_id?: string | null
           meet_url?: string | null
           origem?: string | null
+          nota_1?: number | null
+          nota_2?: number | null
+          nota_3?: number | null
+          nota_4?: number | null
+          criterios_resultado?: Json | null
         }
         Relationships: [
           {
@@ -290,6 +308,11 @@ export interface Database {
           follow_whatsapp_d1: string | null
           follow_whatsapp_d3: string | null
           follow_email_5: string | null
+          nota_1: number | null
+          nota_2: number | null
+          nota_3: number | null
+          nota_4: number | null
+          criterios_resultado: Json | null
           created_at: string
           updated_at: string
         }
@@ -320,6 +343,11 @@ export interface Database {
           follow_whatsapp_d1?: string | null
           follow_whatsapp_d3?: string | null
           follow_email_5?: string | null
+          nota_1?: number | null
+          nota_2?: number | null
+          nota_3?: number | null
+          nota_4?: number | null
+          criterios_resultado?: Json | null
           created_at?: string
           updated_at?: string
         }
@@ -349,6 +377,11 @@ export interface Database {
           follow_whatsapp_d1?: string | null
           follow_whatsapp_d3?: string | null
           follow_email_5?: string | null
+          nota_1?: number | null
+          nota_2?: number | null
+          nota_3?: number | null
+          nota_4?: number | null
+          criterios_resultado?: Json | null
           updated_at?: string
         }
         Relationships: [

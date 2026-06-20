@@ -2,9 +2,39 @@ import { z } from 'zod'
 import { openai } from '@/lib/openai'
 import { safeParseJson } from './pipeline'
 import { buildConfigPrompt, type AiConfig } from '@/lib/ai-config'
+import type { CriterionDef } from '@/lib/criteria-definitions'
 import type { LigacaoResultV2 } from '@/lib/types/agents'
 
-const SYSTEM_PROMPT = `Você é um especialista em análise de ligações comerciais B2B de prospecção.
+const RUBRICAS: Record<string, string> = {
+  acesso_decisor: `- 0-3: Não tentou identificar decisor ou assumiu errado
+- 4-6: Identificou que não era decisor mas não agiu
+- 7-8: Lidou bem com intermediários, pediu contato/horário
+- 9-10: Falou com decisor confirmado ou agendou retorno assertivo`,
+  explicacao_motivo: `- 0-3: Não explicou ou foi confuso
+- 4-6: Explicação vaga
+- 7-8: Explicação clara sobre o motivo da ligação
+- 9-10: Explicação objetiva + contexto relevante`,
+  geracao_curiosidade: `Gatilhos possíveis: possibilidade de economia, melhoria, revisão de contrato, alternativas de mercado, oportunidade do momento.
+- 0-3: Apresentação genérica, sem curiosidade
+- 4-6: Benefícios vagos
+- 7-8: Usou gatilhos de interesse
+- 9-10: Curiosidade personalizada ao contexto do cliente`,
+  conducao_conversa: `- 0-3: Monólogo, não escutou, perdeu controle
+- 4-6: Conduziu com desvios
+- 7-8: Boa fluidez, equilibrou fala e escuta
+- 9-10: Escuta ativa, redirecionou para agendamento`,
+  comunicacao: `- 0-3: Confuso, robótico, inseguro
+- 4-6: Aceitável mas pouco natural
+- 7-8: Boa comunicação, confiante
+- 9-10: Excelente, natural, empático`,
+}
+
+const PEDIDO_REUNIAO_RUBRICA = `- 0-3: Não pediu ou muito vago
+- 4-6: Pediu mas sem horários específicos
+- 7-8: Convite claro + duração + horários sugeridos
+- 9-10: Convite assertivo + superou objeções + confirmou`
+
+const INTRO = `Você é um especialista em análise de ligações comerciais B2B de prospecção.
 
 ## OBJETIVO DA LIGAÇÃO
 NÃO é fazer diagnóstico completo do cliente.
@@ -16,71 +46,48 @@ NÃO é fazer diagnóstico completo do cliente.
 3. Atribua notas de 0 a 10 baseadas em critérios objetivos
 4. Retorne APENAS o JSON - sem texto antes, depois ou ao redor
 
-## CRITÉRIOS DE AVALIAÇÃO
+## CRITÉRIOS DE AVALIAÇÃO DE DESEMPENHO DO VENDEDOR`
 
-### BLOCO 1: PERFORMANCE DO VENDEDOR (6 critérios)
+const BLOCO_QUALIFICACAO = `## QUALIFICAÇÃO DO LEAD (sempre avaliada, independente dos critérios de desempenho)
 
-#### 1. ACESSO AO DECISOR (0-10)
-- 0-3: Não tentou identificar decisor ou assumiu errado
-- 4-6: Identificou que não era decisor mas não agiu
-- 7-8: Lidou bem com intermediários, pediu contato/horário
-- 9-10: Falou com decisor confirmado ou agendou retorno assertivo
-
-#### 2. EXPLICAÇÃO DO MOTIVO (0-10)
-- 0-3: Não explicou ou foi confuso
-- 4-6: Explicação vaga
-- 7-8: Explicação clara sobre o motivo da ligação
-- 9-10: Explicação objetiva + contexto relevante
-
-#### 3. GERAÇÃO DE CURIOSIDADE (0-10)
-Gatilhos possíveis: possibilidade de economia, melhoria, revisão de contrato, alternativas de mercado, oportunidade do momento.
-- 0-3: Apresentação genérica, sem curiosidade
-- 4-6: Benefícios vagos
-- 7-8: Usou gatilhos de interesse
-- 9-10: Curiosidade personalizada ao contexto do cliente
-
-#### 4. CONDUÇÃO DA CONVERSA (0-10)
-- 0-3: Monólogo, não escutou, perdeu controle
-- 4-6: Conduziu com desvios
-- 7-8: Boa fluidez, equilibrou fala e escuta
-- 9-10: Escuta ativa, redirecionou para agendamento
-
-#### 5. PEDIDO DE REUNIÃO (0-10) — PESO 2X, MAIS IMPORTANTE
-- 0-3: Não pediu ou muito vago
-- 4-6: Pediu mas sem horários específicos
-- 7-8: Convite claro + duração + horários sugeridos
-- 9-10: Convite assertivo + superou objeções + confirmou
-
-#### 6. COMUNICAÇÃO (0-10)
-- 0-3: Confuso, robótico, inseguro
-- 4-6: Aceitável mas pouco natural
-- 7-8: Boa comunicação, confiante
-- 9-10: Excelente, natural, empático
-
-### BLOCO 2: QUALIFICAÇÃO DO LEAD (2 critérios)
-
-#### 7. AUTORIDADE DE DECISÃO (0-10)
+#### A. AUTORIDADE DE DECISÃO (0-10)
 - 0-3: Não decisor, sem acesso
 - 4-6: Influenciador
 - 7-8: Co-decisor
 - 9-10: Decisor final confirmado
 
-#### 8. INTERESSE APARENTE (0-10)
+#### B. INTERESSE APARENTE (0-10)
 - 0-3: Desinteresse claro
 - 4-6: Educado mas sem interesse real
 - 7-8: Interesse moderado
 - 9-10: Alto interesse, fez perguntas
 
-## CÁLCULOS OBRIGATÓRIOS
-nota_geral_vendedor = [(N1 + N2 + N3 + N4 + N6) + (N5 × 2)] ÷ 7
-nota_geral_lead = (N7 + N8) ÷ 2
-probabilidade = (nota_geral_vendedor × 0.6 + nota_geral_lead × 0.4) × 10 (inteiro 0-100)
+## CÁLCULOS
+nota_geral_lead = (autoridade_decisao + interesse_aparente) ÷ 2
+nota_geral_vendedor: dê uma estimativa aproximada da performance geral do vendedor nos critérios avaliados (0-10) — esse valor será recalculado automaticamente pelo sistema com base nos pesos configurados pela empresa, então uma estimativa aproximada é suficiente
+probabilidade_agendamento = (nota_geral_vendedor × 0.6 + nota_geral_lead × 0.4) × 10 (inteiro 0-100)
 
 Classificação da ligação: excelente (>=8), boa (>=6), regular (>=4), fraca (<4)
 Classificação do lead: HOT (>=7), WARM (>=4), COLD (<4)
 
 ## FORMATO DE SAÍDA
 Retorne APENAS JSON válido sem texto adicional.`
+
+function buildSystemPrompt(activeOptional: CriterionDef[]): string {
+  let n = 1
+  const mandatoryBlock = `#### ${n++}. PEDIDO DE REUNIÃO (0-10) — CRITÉRIO OBRIGATÓRIO, PESO 2X, MAIS IMPORTANTE\n${PEDIDO_REUNIAO_RUBRICA}`
+
+  const optionalBlocks = activeOptional
+    .map(c => `#### ${n++}. ${c.label.toUpperCase()} (0-10)\n${RUBRICAS[c.key] ?? c.descricao}`)
+    .join('\n\n')
+
+  return [
+    INTRO,
+    mandatoryBlock,
+    optionalBlocks,
+    BLOCO_QUALIFICACAO,
+  ].filter(Boolean).join('\n\n')
+}
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
@@ -96,48 +103,30 @@ const CriterioSchema = z.object({
   evidencias: z.array(EvidenciaSchema).default([]),
 })
 
+const GenericCriterioSchema = z.object({
+  nota: z.number().min(0).max(10),
+  justificativa: z.string().optional().default(''),
+  evidencias: z.array(z.string()).optional().default([]),
+  sugestoes: z.array(z.string()).optional().default([]),
+})
+
 const ObjecaoRecebidaSchema = z.object({
   objecao: z.string(),
   resposta_vendedor: z.string(),
   foi_bem_tratada: z.boolean(),
 })
 
+const PedidoReuniaoSchema = CriterioSchema.extend({
+  fez_convite_claro: z.boolean().default(false),
+  explicou_duracao_reuniao: z.boolean().default(false),
+  sugeriu_horarios_especificos: z.boolean().default(false),
+  objecoes_recebidas: z.array(ObjecaoRecebidaSchema).default([]),
+  resultado: z.enum(['agendado', 'pendente', 'recusado', 'nao_pediu']).default('nao_pediu'),
+})
+
 const LigacaoV2Schema = z.object({
-  performance_vendedor: z.object({
-    acesso_decisor: CriterioSchema.extend({
-      falou_com_decisor: z.boolean().default(false),
-      sinais_positivos: z.array(z.string()).default([]),
-      sinais_negativos: z.array(z.string()).default([]),
-    }),
-    explicacao_motivo: CriterioSchema.extend({
-      foi_claro: z.boolean().default(false),
-      mencionou_revisao_plano: z.boolean().default(false),
-    }),
-    geracao_curiosidade: CriterioSchema.extend({
-      gatilhos_utilizados: z.array(z.string()).default([]),
-      fez_diagnostico_na_ligacao: z.boolean().default(false),
-      oportunidades_perdidas: z.array(z.string()).default([]),
-    }),
-    conducao_conversa: CriterioSchema.extend({
-      equilibrio_fala_escuta: z.string().default('regular'),
-      fez_perguntas: z.boolean().default(false),
-      manteve_foco_agendamento: z.boolean().default(false),
-      desvios_foco: z.array(z.string()).default([]),
-    }),
-    pedido_reuniao: CriterioSchema.extend({
-      fez_convite_claro: z.boolean().default(false),
-      explicou_duracao_reuniao: z.boolean().default(false),
-      sugeriu_horarios_especificos: z.boolean().default(false),
-      objecoes_recebidas: z.array(ObjecaoRecebidaSchema).default([]),
-      resultado: z.enum(['agendado', 'pendente', 'recusado', 'nao_pediu']).default('nao_pediu'),
-    }),
-    comunicacao: CriterioSchema.extend({
-      tom_voz: z.string().default('nao_avaliavel'),
-      naturalidade: z.string().default('media'),
-      clareza: z.string().default('media'),
-      empatia_percebida: z.string().default('media'),
-    }),
-  }),
+  pedido_reuniao: PedidoReuniaoSchema,
+  criterios_opcionais: z.record(z.string(), GenericCriterioSchema).optional().default({}),
   qualificacao_lead: z.object({
     autoridade_decisao: CriterioSchema.extend({
       nivel_autoridade: z.string().default('nao_identificado'),
@@ -180,11 +169,13 @@ const LigacaoV2Schema = z.object({
 
 export async function runLigacaoEvaluator(
   transcricao: string,
+  activeOptional: CriterionDef[],
   contextoEmpresa?: string,
   customConfig?: AiConfig | null,
 ): Promise<LigacaoResultV2> {
+  const systemPrompt = buildSystemPrompt(activeOptional)
   const configAppendix = customConfig ? buildConfigPrompt(customConfig, 'ligacao') : ''
-  const systemPrompt = configAppendix ? `${SYSTEM_PROMPT}\n\n${configAppendix}` : SYSTEM_PROMPT
+  const fullPrompt = configAppendix ? `${systemPrompt}\n\n${configAppendix}` : systemPrompt
 
   const userContent = contextoEmpresa
     ? `Contexto da empresa:\n${contextoEmpresa}\n\nTranscrição da ligação:\n${transcricao}`
@@ -194,7 +185,7 @@ export async function runLigacaoEvaluator(
     model: 'o4-mini',
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: fullPrompt },
       { role: 'user', content: userContent },
     ],
   })
@@ -207,5 +198,14 @@ export async function runLigacaoEvaluator(
     throw new Error(`Ligação v2 schema inválido: ${parsed.error.issues.map(i => i.message).join('; ')}`)
   }
 
-  return parsed.data
+  // Defensivo: mantém só as chaves opcionais que foram de fato solicitadas
+  const activeKeys = new Set(activeOptional.map(c => c.key))
+  const filteredOpcionais = Object.fromEntries(
+    Object.entries(parsed.data.criterios_opcionais).filter(([key]) => activeKeys.has(key))
+  )
+
+  return {
+    ...parsed.data,
+    criterios_opcionais: filteredOpcionais,
+  }
 }

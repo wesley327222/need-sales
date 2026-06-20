@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { fetchAiConfig, resolveActiveCriteria } from '@/lib/ai-config'
 
 const D = {
   bg: '#0A0A0B', surface: '#111113', surface2: '#18181B',
@@ -38,6 +39,52 @@ function SectionHeader({ title }: { title: string }) {
   )
 }
 
+function CriteriaRow({ label, val }: { label: string; val: number | null }) {
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
+        <span style={{ fontSize: 12, color: D.text2 }}>{label}</span>
+        <span style={{ fontFamily: D.mono, fontSize: 15, fontWeight: 700, color: scoreColor(val) }}>{fmtScore(val)}</span>
+      </div>
+      <div style={{ height: 3, background: D.border2, borderRadius: 2 }}>
+        {val != null && <div style={{ width: `${(val / 10) * 100}%`, height: 3, background: scoreColor(val), borderRadius: 2 }} />}
+      </div>
+    </div>
+  )
+}
+
+function CriteriaPanel({ data }: { data: { legacy: { label: string; val: number | null }[]; dynamic: { label: string; val: number | null }[]; hasLegacy: boolean; hasDynamic: boolean } }) {
+  if (!data.hasLegacy && !data.hasDynamic) {
+    return (
+      <div style={{ background: D.surface, border: `1px solid ${D.border}`, borderRadius: 5, padding: 24, textAlign: 'center', fontFamily: D.mono, fontSize: 10, color: D.text3, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        Sem dados
+      </div>
+    )
+  }
+  return (
+    <div style={{ background: D.surface, border: `1px solid ${D.border}`, borderRadius: 5, overflow: 'hidden' }}>
+      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {data.hasDynamic && data.dynamic.length > 0 && (
+          <>
+            {data.hasLegacy && (
+              <div style={{ fontFamily: D.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: D.accent }}>Atual (configuração personalizada)</div>
+            )}
+            {data.dynamic.map(c => <CriteriaRow key={c.label} label={c.label} val={c.val} />)}
+          </>
+        )}
+        {data.hasLegacy && (
+          <>
+            {data.hasDynamic && (
+              <div style={{ fontFamily: D.mono, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: D.text3, marginTop: 4 }}>Histórico (modelo antigo)</div>
+            )}
+            {data.legacy.map(c => <CriteriaRow key={c.label} label={c.label} val={c.val} />)}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default async function ReportsPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -54,10 +101,12 @@ export default async function ReportsPage() {
   if (!managerProfile?.empresa_id) redirect('/login')
   const empresaId = managerProfile.empresa_id
 
-  const [{ data: reunioes }, { data: ligacoes }, { data: profiles }] = await Promise.all([
-    service.from('reunioes').select('id, vendedor_id, data_hora, status, nota_geral, nota_escuta, nota_objecoes, nota_apresentacao, follow_whatsapp_d1, follow_whatsapp_d3, follow_email_5').eq('empresa_id', empresaId),
-    service.from('ligacoes').select('id, vendedor_id, data_hora, status, nota_geral, nota_acesso_decisor, nota_qualificacao_lead, nota_geracao_curiosidade, nota_conducao_conversa, nota_pedido_reuniao, follow_whatsapp_d1').eq('empresa_id', empresaId),
+  const [{ data: reunioes }, { data: ligacoes }, { data: profiles }, reuniaoConfig, ligacaoConfig] = await Promise.all([
+    service.from('reunioes').select('id, vendedor_id, data_hora, status, nota_geral, nota_escuta, nota_objecoes, nota_apresentacao, nota_1, nota_2, nota_3, nota_4, criterios_resultado, follow_whatsapp_d1, follow_whatsapp_d3, follow_email_5').eq('empresa_id', empresaId),
+    service.from('ligacoes').select('id, vendedor_id, data_hora, status, nota_geral, nota_acesso_decisor, nota_qualificacao_lead, nota_geracao_curiosidade, nota_conducao_conversa, nota_pedido_reuniao, nota_1, nota_2, nota_3, nota_4, criterios_resultado, follow_whatsapp_d1').eq('empresa_id', empresaId),
     service.from('profiles').select('id, nome, role').eq('empresa_id', empresaId),
+    fetchAiConfig(empresaId, 'reuniao'),
+    fetchAiConfig(empresaId, 'ligacao'),
   ])
 
   const allR = reunioes ?? []
@@ -149,12 +198,47 @@ export default async function ReportsPage() {
   const mid = allScores.filter(s => s >= 6 && s < 8).length
   const lo  = allScores.filter(s => s < 6).length
 
-  // --- Criteria averages (reunioes only) ---
-  const criteriaAvg = {
-    escuta:       avg(allR.filter(r => r.nota_escuta != null).map(r => r.nota_escuta!)),
-    objecoes:     avg(allR.filter(r => r.nota_objecoes != null).map(r => r.nota_objecoes!)),
-    apresentacao: avg(allR.filter(r => r.nota_apresentacao != null).map(r => r.nota_apresentacao!)),
+  // --- Criteria averages — legado (colunas fixas) vs dinâmico (nota_1..nota_4, conforme config atual) ---
+  function buildCriteriaAverages<T extends { criterios_resultado: unknown; nota_1: number | null; nota_2: number | null; nota_3: number | null; nota_4: number | null }>(
+    rows: T[],
+    legacy: { label: string; val: number | null }[],
+    config: Awaited<ReturnType<typeof fetchAiConfig>>,
+    tipo: 'reuniao' | 'ligacao',
+  ) {
+    const dynamicRows = rows.filter(r => r.criterios_resultado)
+    const { optional } = resolveActiveCriteria(config, tipo)
+    const slots: ('nota_1' | 'nota_2' | 'nota_3' | 'nota_4')[] = ['nota_1', 'nota_2', 'nota_3', 'nota_4']
+    const dynamic = optional.map((def, i) => {
+      const key = slots[i]
+      if (!key) return null
+      const vals = dynamicRows.filter(r => r[key] != null).map(r => r[key] as number)
+      return { label: def.label, val: avg(vals) }
+    }).filter((x): x is { label: string; val: number | null } => x !== null)
+    return { legacy, dynamic, hasLegacy: rows.some(r => !r.criterios_resultado), hasDynamic: dynamicRows.length > 0 }
   }
+
+  const legacyR = allR.filter(r => !r.criterios_resultado)
+  const criteriaAvgReuniao = buildCriteriaAverages(
+    allR,
+    [
+      { label: 'Escuta Ativa',  val: avg(legacyR.filter(r => r.nota_escuta != null).map(r => r.nota_escuta!)) },
+      { label: 'Objeções',       val: avg(legacyR.filter(r => r.nota_objecoes != null).map(r => r.nota_objecoes!)) },
+      { label: 'Apresentação',   val: avg(legacyR.filter(r => r.nota_apresentacao != null).map(r => r.nota_apresentacao!)) },
+    ],
+    reuniaoConfig,
+    'reuniao',
+  )
+
+  const legacyL = allL.filter(l => !l.criterios_resultado)
+  const criteriaAvgLigacao = buildCriteriaAverages(
+    allL,
+    [
+      { label: 'Acesso ao Decisor',      val: avg(legacyL.filter(l => l.nota_acesso_decisor != null).map(l => l.nota_acesso_decisor!)) },
+      { label: 'Pedido de Reunião',      val: avg(legacyL.filter(l => l.nota_pedido_reuniao != null).map(l => l.nota_pedido_reuniao!)) },
+    ],
+    ligacaoConfig,
+    'ligacao',
+  )
 
   const tdSt: React.CSSProperties = {
     padding: '12px 16px', borderBottom: `1px solid ${D.border}`,
@@ -276,25 +360,10 @@ export default async function ReportsPage() {
 
           <div>
             <SectionHeader title="Critérios de Reunião" />
-            <div style={{ background: D.surface, border: `1px solid ${D.border}`, borderRadius: 5, overflow: 'hidden' }}>
-              <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {[
-                  { label: 'Escuta Ativa',  val: criteriaAvg.escuta },
-                  { label: 'Objeções',       val: criteriaAvg.objecoes },
-                  { label: 'Apresentação',   val: criteriaAvg.apresentacao },
-                ].map(c => (
-                  <div key={c.label}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
-                      <span style={{ fontSize: 12, color: D.text2 }}>{c.label}</span>
-                      <span style={{ fontFamily: D.mono, fontSize: 15, fontWeight: 700, color: scoreColor(c.val) }}>{fmtScore(c.val)}</span>
-                    </div>
-                    <div style={{ height: 3, background: D.border2, borderRadius: 2 }}>
-                      {c.val != null && <div style={{ width: `${(c.val / 10) * 100}%`, height: 3, background: scoreColor(c.val), borderRadius: 2 }} />}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <CriteriaPanel data={criteriaAvgReuniao} />
+
+            <SectionHeader title="Critérios de Ligação" />
+            <CriteriaPanel data={criteriaAvgLigacao} />
 
             <SectionHeader title="Distribuição de Notas" />
             <div style={{ background: D.surface, border: `1px solid ${D.border}`, borderRadius: 5, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>

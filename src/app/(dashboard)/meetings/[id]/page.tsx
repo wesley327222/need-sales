@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { MeetingTabs, type MeetingTabData } from '@/components/vendor/meeting-tabs'
 import { AudioPlayer } from '@/components/vendor/audio-player'
 import { ReprocessButton } from '@/components/vendor/reprocess-button'
+import { mapCriteriosResultado, buildDynamicScorecard } from '@/lib/agents/display-mapping'
 import type { SpinResult, ObjecaoAvaliada } from '@/lib/types/agents'
 
 const D = {
@@ -91,24 +92,29 @@ export default async function MeetingDetailPage({ params }: Props) {
   type PropostaDb = { sugerida?: string }
   const propostaRaw = reuniao.proposta as PropostaDb | null
 
+  const criteriosResultado = mapCriteriosResultado(reuniao.criterios_resultado)
+
   const tabData: MeetingTabData = {
     transcription: reuniao.transcricao,
     duration_seconds: reuniao.duracao,
     insights,
     objecoes: objecoesArr.map(o => ({ numero: o.numero, texto: o.texto, status: o.status, como_tratou: o.como_tratou, sugestao_quebra: o.sugestao_quebra })),
     followups,
+    criteriosResultado,
     relatorioNotas: (relatorioNotas.escuta || relatorioNotas.objecoes_nota || relatorioNotas.apresentacao) ? relatorioNotas : null,
     spin: spinData,
     proposta: propostaRaw?.sugerida ?? reuniao.follow_email_5 ?? null,
   }
 
-  const CRITERIA = [
-    { key: 'geral',        label: 'Nota Geral',    val: reuniao.nota_geral,        main: true },
-    { key: 'escuta',       label: 'Escuta Ativa',  val: reuniao.nota_escuta,       main: false },
-    { key: 'objecoes',     label: 'Objeções',      val: reuniao.nota_objecoes,     main: false },
-    { key: 'apresentacao', label: 'Apresentação',  val: reuniao.nota_apresentacao, main: false },
-    { key: 'spin',         label: 'SPIN Selling',  val: spinRaw?.nota4?.media ?? null, main: false },
-  ]
+  const CRITERIA = criteriosResultado
+    ? buildDynamicScorecard(reuniao.nota_geral, criteriosResultado)
+    : [
+        { key: 'geral',        label: 'Nota Geral',    val: reuniao.nota_geral,        main: true },
+        { key: 'escuta',       label: 'Escuta Ativa',  val: reuniao.nota_escuta,       main: false },
+        { key: 'objecoes',     label: 'Objeções',      val: reuniao.nota_objecoes,     main: false },
+        { key: 'apresentacao', label: 'Apresentação',  val: reuniao.nota_apresentacao, main: false },
+        { key: 'spin',         label: 'SPIN Selling',  val: spinRaw?.nota4?.media ?? null, main: false },
+      ]
 
   return (
     <div style={{ fontFamily: D.ui, color: D.text1 }}>

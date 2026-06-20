@@ -23,7 +23,7 @@ export default async function VendorInsights() {
   const sixMonthsAgo = new Date(); sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
   const { data: reunioes } = await supabase
     .from('reunioes')
-    .select('id, nota_geral, nota_escuta, nota_objecoes, nota_apresentacao, nota_spin, data_hora, status')
+    .select('id, nota_geral, nota_escuta, nota_objecoes, nota_apresentacao, nota_spin, criterios_resultado, data_hora, status')
     .eq('vendedor_id', user.id)
     .gte('data_hora', sixMonthsAgo.toISOString())
     .order('data_hora')
@@ -59,10 +59,13 @@ export default async function VendorInsights() {
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
   }
 
+  // nota_objecoes e nota_spin continuam sendo critérios obrigatórios (sempre escritos).
+  // nota_escuta/nota_apresentacao agora são opcionais — só existem em registros do modelo antigo.
+  const legacyReunioes = (reunioes ?? []).filter(r => !r.criterios_resultado)
   const criAvg = {
-    escuta:       avgF((reunioes ?? []).map(r => r.nota_escuta)),
+    escuta:       avgF(legacyReunioes.map(r => r.nota_escuta)),
     objecoes:     avgF((reunioes ?? []).map(r => r.nota_objecoes)),
-    apresentacao: avgF((reunioes ?? []).map(r => r.nota_apresentacao)),
+    apresentacao: avgF(legacyReunioes.map(r => r.nota_apresentacao)),
     spin:         avgF((reunioes ?? []).map(r => r.nota_spin ?? null)),
   }
 
