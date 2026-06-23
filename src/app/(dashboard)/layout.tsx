@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Sidebar } from '@/components/layout/sidebar'
+import { roleHomePath } from '@/lib/auth-redirect'
 
 export default async function DashboardLayout({
   children,
@@ -16,6 +17,8 @@ export default async function DashboardLayout({
     .select('nome, role')
     .eq('id', user.id)
     .single()
+
+  if (profile?.role === 'seller') redirect(roleHomePath(profile.role))
 
   const nome    = profile?.nome ?? 'Gestor'
   const initials = nome.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)

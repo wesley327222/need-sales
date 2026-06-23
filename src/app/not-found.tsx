@@ -1,4 +1,7 @@
+'use client'
+
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 
 const D = {
   bg:      '#0A0A0B',
@@ -14,6 +17,9 @@ const D = {
 }
 
 export default function NotFound() {
+  const pathname = usePathname()
+  const dashboardHref = pathname?.startsWith('/vendor') ? '/vendor/dashboard' : '/dashboard'
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -100,7 +106,7 @@ export default function NotFound() {
 
         {/* Actions */}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-          <Link href="/dashboard" style={{
+          <Link href={dashboardHref} style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
             padding: '9px 20px', borderRadius: 4,
             background: D.accent, color: '#000',

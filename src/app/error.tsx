@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 
 const D = {
   bg:      '#0A0A0B',
@@ -23,6 +24,9 @@ interface Props {
 }
 
 export default function GlobalError({ error, reset }: Props) {
+  const pathname = usePathname()
+  const dashboardHref = pathname?.startsWith('/vendor') ? '/vendor/dashboard' : '/dashboard'
+
   useEffect(() => {
     console.error('[Need Sales] Runtime error:', error)
   }, [error])
@@ -117,7 +121,7 @@ export default function GlobalError({ error, reset }: Props) {
           >
             ↺ Tentar novamente
           </button>
-          <Link href="/dashboard" style={{
+          <Link href={dashboardHref} style={{
             display: 'inline-flex', alignItems: 'center',
             padding: '9px 20px', borderRadius: 4,
             border: `1px solid ${D.border2}`, background: 'transparent',

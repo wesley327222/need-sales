@@ -1,11 +1,25 @@
 import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
 import './vendor.css'
 
 export const metadata: Metadata = {
   title: 'Need Sales — Portal do Vendedor',
 }
 
-export default function VendorLayout({ children }: { children: React.ReactNode }) {
+export default async function VendorLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (profile?.role !== 'seller') redirect('/dashboard')
+
   return (
     <>
       {/* eslint-disable-next-line @next/next/no-page-custom-font */}

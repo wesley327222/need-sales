@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { updateSession } from '@/lib/supabase/middleware'
+import { roleHomePath } from '@/lib/auth-redirect'
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const { supabaseResponse, user } = await updateSession(request)
+  const { supabaseResponse, user, role } = await updateSession(request)
 
   const isPublic = pathname.startsWith('/login')
 
@@ -15,7 +16,7 @@ export async function proxy(request: NextRequest) {
 
   if (user && isPublic) {
     const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
+    url.pathname = roleHomePath(role)
     return NextResponse.redirect(url)
   }
 
