@@ -39,3 +39,24 @@ export async function POST(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(data, { status: 201 })
 }
+
+/** Ajusta total_ligacoes (ex: quando alguns arquivos do pack falham ao serem criados). */
+export async function PATCH(request: Request) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id, total_ligacoes } = await request.json()
+  if (!id || typeof total_ligacoes !== 'number') {
+    return NextResponse.json({ error: 'id e total_ligacoes são obrigatórios' }, { status: 400 })
+  }
+
+  const service = createServiceClient()
+  const { error } = await service
+    .from('ligacoes_lotes')
+    .update({ total_ligacoes, updated_at: new Date().toISOString() })
+    .eq('id', id)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}

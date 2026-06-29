@@ -351,6 +351,9 @@ export function VendorUploadModal({ open, onClose, tipo, pathPrefix = '/vendor' 
         ? new Date(batchPeriodoFim).getTime() - new Date(batchPeriodoInicio).getTime()
         : 0
 
+      let successCount = 0
+      const failures: string[] = []
+
       for (let i = 0; i < extractedFiles.length; i++) {
         const ef = extractedFiles[i]
         setBatchProgress({ current: i + 1, total: extractedFiles.length })
@@ -385,13 +388,39 @@ export function VendorUploadModal({ open, onClose, tipo, pathPrefix = '/vendor' 
               lote_id:        loteId,
             }),
           })
-          if (!meetRes.ok) continue
+          if (!meetRes.ok) {
+            const b = await meetRes.json().catch(() => ({}))
+            failures.push(`${ef.name}: ${b.error ?? `erro ${meetRes.status}`}`)
+            continue
+          }
           const record = await meetRes.json()
-          fetch(`/api/meetings/${record.id}/process?tipo=ligacao`, { method: 'POST' }).catch(() => {})
-        } catch { /* continue */ }
+          successCount++
+          fetch(`/api/meetings/${record.id}/process?tipo=ligacao`, { method: 'POST' })
+            .catch(err => console.error(`[batch] falha ao iniciar análise de ${ef.name}:`, err))
+        } catch (err) {
+          failures.push(`${ef.name}: ${err instanceof Error ? err.message : 'erro desconhecido'}`)
+        }
+      }
+
+      // Keep the lote's total_ligacoes accurate if some files failed to create
+      if (successCount < extractedFiles.length) {
+        await fetch('/api/lotes', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: loteId, total_ligacoes: successCount }),
+        }).catch(() => {})
+      }
+
+      if (successCount === 0) {
+        setBatchError(`Nenhuma ligação foi salva. Detalhe: ${failures[0] ?? 'erro desconhecido'}`)
+        setBatchStep('preview')
+        return
       }
 
       setBatchStep('done'); onClose()
+      if (failures.length > 0) {
+        console.error(`[batch] ${failures.length} de ${extractedFiles.length} ligações falharam:`, failures)
+      }
       // Dashboard doesn't have a batch report page yet — redirect to calls list
       const batchPath = pathPrefix === '/vendor' ? `/vendor/calls/batch/${loteId}` : `${pathPrefix}/calls`
       router.push(batchPath); router.refresh()

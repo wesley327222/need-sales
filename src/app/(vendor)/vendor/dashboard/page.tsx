@@ -24,7 +24,7 @@ export default async function VendorDashboard() {
   // My reunioes
   const { data: reunioes } = await service
     .from('reunioes')
-    .select('id, titulo, cliente_id, nota_geral, data_hora, status')
+    .select('id, titulo, nota_geral, data_hora, status')
     .eq('vendedor_id', user.id)
     .order('data_hora', { ascending: false })
 
@@ -32,8 +32,6 @@ export default async function VendorDashboard() {
   const avgScore = scored.length
     ? scored.reduce((s, m) => s + (m.nota_geral ?? 0), 0) / scored.length
     : null
-
-  const clientCount = new Set(reunioes?.map(m => m.cliente_id).filter(Boolean)).size
 
   // Follow-ups count: count reunioes with follow_whatsapp_d1
   const { count: followupCount } = await service
@@ -171,7 +169,7 @@ export default async function VendorDashboard() {
         <div style={{ padding: '0 32px 40px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', gap: 14, marginBottom: 14 }}>
             <div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 14 }}>
                 {/* Minha Nota — with "A melhorar" badge */}
                 <div style={{ background: V.surface, border: `1px solid ${V.border}`, borderRadius: 5, padding: '16px 20px' }}>
                   <div style={{
@@ -188,7 +186,6 @@ export default async function VendorDashboard() {
                 {/* Other metric cards */}
                 {[
                   { tag: 'Reuniões',       val: String(reunioes?.length ?? 0), sub: 'Este mês',   color: V.text1 },
-                  { tag: 'Clientes Ativos', val: String(clientCount),           sub: 'Na carteira', color: V.text1 },
                   { tag: 'Follow-ups',      val: String(followupCount ?? 0),    sub: 'Pendentes',   color: V.text1 },
                 ].map(card => (
                   <div key={card.tag} style={{ background: V.surface, border: `1px solid ${V.border}`, borderRadius: 5, padding: '16px 20px' }}>
@@ -246,7 +243,6 @@ export default async function VendorDashboard() {
                 <div style={{ padding: '10px 12px' }}>
                   {[
                     { href: '/vendor/meetings', label: 'Minhas Reuniões', sub: 'Ver e analisar reuniões', iconBg: 'rgba(0,229,160,0.08)' },
-                    { href: '/vendor/clients',  label: 'Meus Clientes',   sub: 'Gerencie sua carteira',  iconBg: 'rgba(79,142,247,0.1)' },
                     { href: '/vendor/insights', label: 'Meus Insights',   sub: 'Analise e evolua',       iconBg: 'rgba(167,139,250,0.1)' },
                   ].map(qa => (
                     <a key={qa.href} href={qa.href} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: V.surface2, border: `1px solid ${V.border}`, borderRadius: 4, cursor: 'pointer', marginBottom: 8, textDecoration: 'none' }}>
