@@ -5,17 +5,21 @@ import { V } from './colors'
 import { ScoreRing } from './score-ring'
 import { VendorUploadModal } from './vendor-upload-modal'
 
-interface Call {
+export interface CallRow {
   id: string
   titulo: string
   nota_geral: number | null
   data_hora: string | null
   status: string | null
   duracao: number | null
+  /** true quando a linha representa um pacote (zip) inteiro, não uma ligação avulsa */
+  isBatch?: boolean
+  /** total de ligações dentro do pacote, só relevante quando isBatch */
+  batchCount?: number
 }
 
 interface Props {
-  calls: Call[]
+  calls: CallRow[]
 }
 
 const chevron = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%234A4A56' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")"
@@ -170,30 +174,37 @@ export function CallsFilterTable({ calls }: Props) {
               </thead>
               <tbody>
                 {filtered.map(c => {
-                  const dur = c.duracao ? `${Math.floor(c.duracao / 60)}min` : '—'
+                  const href = c.isBatch ? `/vendor/calls/batch/${c.id}` : `/vendor/calls/${c.id}`
+                  const isReady = c.status === 'processado'
+                  const isError = c.status === 'error'
                   return (
                     <tr
                       key={c.id}
-                      onClick={() => { window.location.href = `/vendor/calls/${c.id}` }}
+                      onClick={() => { window.location.href = href }}
                       style={{ cursor: 'pointer' }}
                     >
                       <td style={{ padding: '12px 16px', borderBottom: `1px solid ${V.border}` }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: V.text1 }}>{c.titulo}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {c.isBatch && <span style={{ fontSize: 14, flexShrink: 0 }}>📦</span>}
+                          <div style={{ fontSize: 13, fontWeight: 600, color: V.text1 }}>{c.titulo}</div>
+                        </div>
                       </td>
                       <td style={{ padding: '12px 16px', borderBottom: `1px solid ${V.border}`, fontFamily: V.mono, fontSize: 12, color: V.text2 }}>
                         {c.data_hora ? new Date(c.data_hora).toLocaleDateString('pt-BR') : '—'}
                       </td>
-                      <td style={{ padding: '12px 16px', borderBottom: `1px solid ${V.border}`, fontFamily: V.mono, fontSize: 12, color: V.text2 }}>{dur}</td>
+                      <td style={{ padding: '12px 16px', borderBottom: `1px solid ${V.border}`, fontFamily: V.mono, fontSize: 12, color: V.text2 }}>
+                        {c.isBatch ? `${c.batchCount ?? 0} ligaç${c.batchCount === 1 ? 'ão' : 'ões'}` : (c.duracao ? `${Math.floor(c.duracao / 60)}min` : '—')}
+                      </td>
                       <td style={{ padding: '12px 16px', borderBottom: `1px solid ${V.border}` }}>
                         <span style={{
                           display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 8px', borderRadius: 3,
                           fontFamily: V.mono, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
-                          background: c.status === 'processado' ? 'rgba(0,229,160,0.08)' : 'rgba(245,158,11,0.1)',
-                          color: c.status === 'processado' ? V.accent : V.amber,
-                          border: `1px solid ${c.status === 'processado' ? 'rgba(0,229,160,0.15)' : 'rgba(245,158,11,0.2)'}`,
+                          background: isReady ? 'rgba(0,229,160,0.08)' : isError ? 'rgba(255,68,85,0.08)' : 'rgba(245,158,11,0.1)',
+                          color: isReady ? V.accent : isError ? V.red : V.amber,
+                          border: `1px solid ${isReady ? 'rgba(0,229,160,0.15)' : isError ? 'rgba(255,68,85,0.2)' : 'rgba(245,158,11,0.2)'}`,
                         }}>
                           <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
-                          {c.status === 'processado' ? 'Analisada' : 'Processando'}
+                          {isReady ? 'Analisada' : isError ? 'Erro' : 'Processando'}
                         </span>
                       </td>
                       <td style={{ padding: '12px 16px', borderBottom: `1px solid ${V.border}` }}>
@@ -201,7 +212,7 @@ export function CallsFilterTable({ calls }: Props) {
                       </td>
                       <td style={{ padding: '12px 16px', borderBottom: `1px solid ${V.border}`, textAlign: 'right' }}>
                         <a
-                          href={`/vendor/calls/${c.id}`}
+                          href={href}
                           onClick={e => e.stopPropagation()}
                           style={{
                             display: 'inline-flex', alignItems: 'center', padding: '5px 10px',
